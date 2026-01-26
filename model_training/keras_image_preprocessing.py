@@ -674,6 +674,8 @@ class NumpyArrayIterator(Iterator):
         return batch_x, batch_y
 
 
+
+
 class DirectoryIterator(Iterator):
 
     def __init__(self, directory, image_data_generator,
@@ -754,6 +756,7 @@ class DirectoryIterator(Iterator):
                     self.filenames.append(os.path.join(subdir, fname))
                     i += 1
         super(DirectoryIterator, self).__init__(self.nb_sample, batch_size, shuffle, seed)
+
 
     def next(self):
         with self.lock:

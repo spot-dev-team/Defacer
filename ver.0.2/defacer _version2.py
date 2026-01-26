@@ -26,38 +26,55 @@ import model_ver_mouth as model
 class Defacer(object):
 
     # onehot results -> argmax
-    def onehot2label(self, onehot_array):
-        onehot_array = np.argmax(onehot_array, axis=-1)
-        label = onehot_array[..., np.newaxis]
 
-        return label
+    #da rede neuronal vem uma mapa de 5 canais (olhos, nariz, orelhas, boca, fundo) com a probabilidade de cada voxel pertencer a cada canal
+    # esta função converte isso numa label única por voxel (0-4)
+    #estrutura onehot_array = 
+    '''X: Dimensão em X
+        Y: Dimensão em Y
+        Z: Dimensão em Z
+        W: Estrutura com os mapas de probabilidades para todos os voxels do exame'''
+    
+    def onehot2label(self, onehot_array):
+
+        #a onehot_Array vem algo como (x, y, z, [0.1, 0.8, 0.05, 0.02, 0.03])
+        onehot_array = np.argmax(onehot_array, axis=-1) #argmax pega na lista do último eixo e devolve o índice do valor máximo, assim insere qual é a label (0-4) em cada voxel
+        exam_labeled = onehot_array[..., np.newaxis] #argmax devolve (x,y,z), este newaxis insere o label num eixo novo no final, ficando (x,y,z,label)
+
+        return exam_labeled
+
 
     # Make the superior coordinates the direction of increasing.
+    #mete o exame de pé
     def flip_axis(self, x, axis):
-        x = np.asarray(x).swapaxes(axis, 0)
-        x = x[::-1, ...]
-        x = x.swapaxes(0, axis)
+        x = np.asarray(x).swapaxes(axis, 0) #coloca o eixo que queremos corrigir na primeira posição para ser mais fácil de o processar a nível de código
+        x = x[::-1, ...] #inverte o eixo que está na primeira posição
+        x = x.swapaxes(0, axis) #devolve o eixo à sua posição original
         return x
+    
 
     # Loop over the image files and store everything into a list.
     def load_scan(self, list_test_image):
         slices = [pydicom.read_file(s)
-                  for s in list_test_image if s.endswith(".dcm")]
-        slices.sort(key=lambda x: int(x.InstanceNumber))  # stack
+                  for s in list_test_image if s.endswith(".dcm")] #lê todos os ficheiros DICOM da pasta e guarda-os numa lista
+                                                                  # usa o pydicom para ler os ficheiros DICOM
+        slices.sort(key=lambda x: int(x.InstanceNumber))  # ordena a lista de slices pelo InstanceNumber (número do slice no exame)
 
         return slices
 
     # Merge dicom image 2D to 3D
     def get_pixels(self, scans):
         # default stack axis = 0 // pixel_array function import [y, x], 3D array becomes [z y x]
-        image = np.stack([s.pixel_array for s in scans])
+        image = np.stack([s.pixel_array for s in scans]) #Pega nos dados dos pixels de cada slice e empilha-os num array 3D
+
         # Convert to int16 (from sometimes int16),
         # values should always be low enough (<32k)
         # image = image.astype(np.int16)
 
         return image
 
-    # Delete dicom's header info
+
+    # Delete dicom's header info - metadata
     def header_deidentification(self, scans, check=True):
         de_code_list = [0x00080012,  # Instance Creation Date
                         0x00080013,  # Instance Creation Time
@@ -91,7 +108,8 @@ class Defacer(object):
                 except:
                     pass
 
-        if check == True:  # check option
+
+        if check == True:  # check option - apenas um sanity check para garantir que os dados foram apagados
             # s[0x00200013].value: Instance Number
             print('dicom Instance Number:', scans[0][0x00200013].value, '\n')
             for code in de_code_list:
@@ -101,24 +119,33 @@ class Defacer(object):
                     pass
 
     # Find eyes and nods
-
     def bounding_box(self, results):
-        boxes = list()
-        for ch in range(results.shape[-1]):  # except 0 label (blanck)
-            if ch == 0 or ch == 2:  # eyes, ears
+        boxes = list() #vai armazenar as coordenadas de cada caixa delimitadora
+        
+        #results formato: $$(Batch, Z, Y, X, Classes)$$Exemplo real com valores:$$(1, 128, 128, 128, 5)$$
 
-                result = np.round(results[..., ch])
-                lb = label(result, connectivity=1)
+        for ch in range(results.shape[-1]):  # .shape[-1] acede ao número de classes
+    
+            #except 0 label (blanck)
+            if ch == 0 or ch == 2:  # eyes, ears (pois há 2 de cada um, então é lógico)
 
-                if np.max(lb) > 2:
-                    region_list = [region.area for region in regionprops(lb)]       
-                    lb = remove_small_objects(lb, min_size=np.max(region_list)*0.3)
+                result = np.round(results[..., ch]) #pega no mapa de probabilidades do canal atual e arredonda os valores (0.8 -> 1, 0.2 -> 0)
+                lb = label(result, connectivity=1) #agrupa os voxels ligados com valores correspondentes a regiões rotuladas e dá-lhes um número de label
+                # lb= Voxels da Ilha A = 1 
+                # Voxels da Ilha B = 2
+                # Voxels da Ilha C = 3
+                # Voxels da Ilha D = 4
 
-                if len(regionprops(lb))!=2 :
+                if np.max(lb) > 2: #se houver mais de 2 regiões rotuladas (mais de 2 olhos ou 2 orelhas) faz isto para controlar o ruído
+                    region_list = [region.area for region in regionprops(lb)]     #cria uma lista com as áreas de cada região rotulada ex: [1000, 850, 50, 30]
+                    lb = remove_small_objects(lb, min_size=np.max(region_list)*0.3) #verifica o grupo com maior área e diz que qualquer grupo com menos de 1/3 do tamanho é para ser desconsiderado pois deve ser ruído.
+
+                if len(regionprops(lb))!=2 : #se não conseguir encontrar exatamente 2 regiões rotuladas (2 olhos ou 2 orelhas) lança um erro
                     raise Exception('Could not find proper eyes on the face')
 
                 for region in regionprops(lb):
-                    boxes.append(list(region.bbox))
+                    boxes.append(list(region.bbox)) #adiciona as coordenadas da caixa delimitadora de cada região rotulada à lista boxes
+                    #region.bbox: Extrai os limites da ilha: (z_min, y_min, x_min, z_max, y_max, x_max)
 
             if ch == 1 or ch ==3 : # nose, mouth
 
@@ -137,19 +164,28 @@ class Defacer(object):
 
         return boxes
     
+    #nota 
+    '''A ordem padrão no espaço 3D é: (z_min, y_min, x_min, z_max, y_max, x_max)
+    Índices 0, 1, 2: Coordenadas Mínimas $(\min_z, \min_y, \min_x)
+    Índices 3, 4, 5: Coordenadas Máximas $(\max_z, \max_y, \max_x)'''
+
 
     def dicom_view_label (self, image, labels, boxes, axial_plane, save_path, file_name):
         boxes =np.array(boxes)
-        centers = (boxes[:,0:3]+boxes[:,3:6])/2 #centers of nose, right ear, left ear
-        
-        pred = np.argmax(labels,axis=-1)
-        
-        ones = np.ones(image.shape)
+        centers = (boxes[:,0:3]+boxes[:,3:6])/2 #centers of nose, right ear, left ear (verifica o ponto médio de cada bounding box)
+        ''' Bounding Box do Olho Esquerdo é:[10, 20, 30, 20, 40, 50]
+        Z_centro: (10 + 20) / 2 = 15
+        Y_centro: (20 + 40) / 2 = 30
+        X_centro: (30 + 50) / 2 = 40
+        '''
+        pred = np.argmax(labels,axis=-1) #pega no índice do canal com maior probabilidade para cada voxel, ficando com um array 3D onde cada voxel tem um valor entre 0-4 conforme a label atribuída        
+        ones = np.ones(image.shape) #cria um array de uns com o mesmo shape que o exame original com tudo a 1. Ou seja, uma matriz de 1s
         for i in range(len(boxes)):
-            ones = self.box_blur(ones, boxes[i], 0)
+            ones = self.box_blur(ones, boxes[i], 0) #chama a função box_blur para cada bounding box, que vai colocar a 0 os voxels dentro da bounding box na matriz de uns
         
-        ones = 1-ones
-        pred = pred*ones
+        ones = 1-ones #inverte a matriz de uns, ficando com 1s nas bounding boxes e 0s no resto do exame. Agora apenas as bounding boxes têm informação, o resto é "apagado" por estar a 0
+        
+        pred = pred*ones #multiplica o exame rotulado pela matriz de bounding boxes, pelas labels de cada voxel, ficando apenas com as labels dentro das bounding boxes, o resto do exame fica a 0
         
         cmap = colors.ListedColormap(['None', 'red', 'purple', 'blue', 'yellow', 'green']) #rigt eye 1, left eye 2, nose 3, right ear 4, left ear5
         bounds=[0,1,2,3,4,5,6]
@@ -242,6 +278,8 @@ class Defacer(object):
         pic_name = os.path.join(save_path,'label_{}.png'.format(os.path.basename(file_name)))
         plt.savefig(pic_name, bbox_inches='tight')
         plt.close('all')
+
+
 
     # take a pic for users to check areas that this tool has found
     def nifti_view_label (self, image,labels,boxes,path,file_name): 

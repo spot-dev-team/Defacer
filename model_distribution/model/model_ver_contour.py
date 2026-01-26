@@ -246,5 +246,19 @@ class InstanceNormalization(Layer):
 
 # import model structure and weight
 from keras.models import load_model
-model = load_model('./model/model_contour4.h5',custom_objects={'InstanceNormalization':InstanceNormalization,'dice_loss':dice_loss,'dice_score':dice_score})
 
+import os
+
+# 1. Descobrir o caminho absoluto da pasta onde este ficheiro (.py) está
+diretorio_do_script = os.path.dirname(os.path.abspath(__file__))
+
+# 2. Criar o caminho completo para o ficheiro .h5
+caminho_h5 = os.path.join(diretorio_do_script, 'model_contour4.h5')
+
+# 3. Carregar o modelo usando o caminho absoluto
+print(f"A carregar pesos de: {caminho_h5}")
+model = load_model(caminho_h5, custom_objects={
+    'InstanceNormalization': InstanceNormalization,
+    'dice_loss': dice_loss,
+    'dice_score': dice_score
+})
