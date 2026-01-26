@@ -184,7 +184,7 @@ class Defacer(object):
             ones = self.box_blur(ones, boxes[i], 0) #chama a função box_blur para cada bounding box, que vai colocar a 0 os voxels dentro da bounding box na matriz de uns
         
         ones = 1-ones #inverte a matriz de uns, ficando com 1s nas bounding boxes e 0s no resto do exame. Agora apenas as bounding boxes têm informação, o resto é "apagado" por estar a 0
-        
+
         pred = pred*ones #multiplica o exame rotulado pela matriz de bounding boxes, pelas labels de cada voxel, ficando apenas com as labels dentro das bounding boxes, o resto do exame fica a 0
         
         cmap = colors.ListedColormap(['None', 'red', 'purple', 'blue', 'yellow', 'green']) #rigt eye 1, left eye 2, nose 3, right ear 4, left ear5
@@ -392,14 +392,17 @@ class Defacer(object):
 
         
 
-    # wipe eyes or nose
+    # wipe nose
     def box_blur(self, im_array, box, option, wth=1):
+        # DICOM (option == 0) -> Ordem esperada: x, y, z
+        # NIfTI (option != 0) -> Ordem esperada: z, y, x
+
         # increase or decrease the size of the box by 'wth' times
         if wth != 1:
-            for c in range(3):
-                mean_ = (box[c]+box[c+3])/2
-                box[c] = int(np.round(mean_-wth*(mean_-box[c])))
-                box[c+3] = int(np.round(wth*(box[c+3]-mean_)+mean_))
+            for c in range(3): #para percorrer as 3 coordenadas x,y,z ou z,y,x conforme o formato do exame
+                mean_ = (box[c]+box[c+3])/2 #faz a posição média entre o mínimo e o máximo da bounding box na coordenada atual
+                box[c] = int(np.round(mean_-wth*(mean_-box[c]))) #calcula o novo mínimo
+                box[c+3] = int(np.round(wth*(box[c+3]-mean_)+mean_)) #calcula o novo máximo
                 if box[c] < 0:
                     box[c] = 0
                 if box[c+3] > im_array.shape[2-c]:
@@ -408,7 +411,7 @@ class Defacer(object):
 
         # voxel coordinates must be 'int'
         # if it is dicom files
-        if option == 0:
+        if option == 0: 
             box_x1 = box[0]
             box_y1 = box[1]
             box_z1 = box[2]
@@ -426,7 +429,7 @@ class Defacer(object):
 
         # wipe nose
         blurr_array = 0
-        im_array[box_x1:box_x2, box_y1:box_y2, box_z1:box_z2] = blurr_array
+        im_array[box_x1:box_x2, box_y1:box_y2, box_z1:box_z2] = blurr_array #substitui os valores dos voxels dentro da bounding box por 0
 
         return im_array
 
@@ -454,21 +457,50 @@ class Defacer(object):
             box_y2 = box[4]
             box_z2 = box[5]
 
-            mini_array = im_array[box_x1:box_x2, box_y1:box_y2, box_z1:box_z2]
-            mini_edge = edge_img[box_x1:box_x2, box_y1:box_y2, box_z1:box_z2]
-            processing_area = np.zeros_like(mini_array)
+            #1. Isolamento da ROI (mini_array e mini_edge)O código cria sub-volumes (crops) para poupar memória e tempo de processamento. 
+            # Trabalhar num cubo de $30^3$ é muito mais rápido do que no volume total de $128^3$.
+            # NOTA: Talvez não seja preciso fazer isto com HPC
+            mini_array = im_array[box_x1:box_x2, box_y1:box_y2, box_z1:box_z2] #mapa de intensidades do sub-volume
+            mini_edge = edge_img[box_x1:box_x2, box_y1:box_y2, box_z1:box_z2] #mapa de bordas do sub-volume
+            processing_area = np.zeros_like(mini_array) #Cria um array de zeros com o formato exato da mini_array. Este array vai ser usado para marcar as áreas que precisam de ser processadas (desfocadas).
 
             # blur eye
-            where_true = np.where(mini_edge == True)
+            where_true = np.where(mini_edge == True)  #retorna as coordenadas dos voxels que são bordas (True) no mini_edge
+            '''
+            ([z1,z2,z3],[y1,y2,y3],[x1,x2,x3]) = where_true
+            # Se o olho tiver uma superfície de 5.000 voxels:
+            # len(where_true[0]) = 5000
+            # where_true[0] = [z1, z2, z3, ..., z5000]
+            # where_true[1] = [y1, y2, y3, ..., y5000]
+            # where_true[2] = [x1, x2, x3, ..., x5000]
+            '''
 
             for i in range(len(where_true[0])):
                 x = where_true[0][i]
                 y = where_true[1][i]
                 z = where_true[2][i]
-                processing_area[x-dep:x+dep,y-dep:y+dep,z-dep:z+dep] = 1
+                # dep = depth (ex: dep = 2)
+                processing_area[x-dep:x+dep,y-dep:y+dep,z-dep:z+dep] = 1 #expande-se a área de processamento em torno de cada voxel de borda para uma anonimização maior
             
+            '''# three steps to get the threshold value
+            # 1. Seleciona apenas os valores da imagem original que estão dentro da casca (ones)
+            pixels_da_casca = mini_array[processing_area == 1]
+
+            # 2. Aplica um desfoque gaussiano nesses valores
+            pixels_borrados = ndimage.gaussian_filter(pixels_da_casca, sigma=3)
+
+            # 3. Escolhe o valor mais alto desse borrão para ser a "cor" da nova superfície
+            threshold = np.max(pixels_borrados)'''
+
+            #ORIGINAL
             threshold = np.max(ndimage.gaussian_filter(mini_array[processing_area==1],sigma=3))
-            mini_array[processing_area==1] = threshold
+
+            #TESTE
+            #threshold = np.median(ndimage.gaussian_filter(mini_array[processing_area==1],sigma=3))
+
+            mini_array[processing_area==1] = threshold #substitui os valores dos voxels na área de processamento pelo valor do threshold obtido
+
+
         # or it is nifti files
         else:
             box_z1 = box[0]
@@ -491,25 +523,34 @@ class Defacer(object):
                 z = where_true[2][i]
                 processing_area[x-dep:x+dep, y-dep:y+dep, z-dep:z+dep] = 1
 
-            threshold = np.max(ndimage.gaussian_filter(
-                mini_array[processing_area == 1], sigma=3))
+            threshold = np.max(ndimage.gaussian_filter(mini_array[processing_area == 1], sigma=3))
+
             mini_array[processing_area == 1] = threshold
 
+        # im_array: O volume total (o cérebro inteiro)
+        # mini_array: O recorte que acabaste de borrar (o "penso" cirúrgico)
+        #aquie basta substituir a parte do volume total pelo recorte borrado pois não foi feito downsampling, apenas se trabalhou nos voxels de interesse
         im_array[box_x1:box_x2, box_y1:box_y2, box_z1:box_z2] = mini_array
         return im_array
 
     # convert image 2D to 3D shape
     def outer_contour_3D(self, image, zoom=1):
-        # sort in standard size
+        
+        # sort in standard size - calcula quanto é preciso redimensionar o exame para ficar com 128x128x128 voxels
         resize_factor = (128/image.shape[0],
-                         128/image.shape[1], 128/image.shape[2])
-        ima = ndimage.zoom(image, resize_factor, order=0,
-                           mode='constant', cval=0.0)
+                         128/image.shape[1], 
+                         128/image.shape[2])
+        
+        # resize image para 128x128x128
+        ima = ndimage.zoom(image, resize_factor, order=0, #ordem 0 = nearest neighbor isto signifca que não há interpolação, mantém os valores originais
+                           mode='constant', cval=0.0)  #Preenche qualquer espaço vazio criado com zeros (preto)
 
         # make binary cast
-        thresh = threshold_triangle(ima)
-        imageg = ndimage.median_filter(ima, size=3)
-        binary_image = imageg > thresh
+        thresh = threshold_triangle(ima) #algoritmo auto para encontrar o melhor threshold para segmentar a imagem em objeto e background
+        imageg = ndimage.median_filter(ima, size=3) #remove ruido para não haver pontos com valores fora do esperado
+        binary_image = imageg > thresh #Cria uma máscara booleana. Tudo o que for mais brilhante que o thresh vira True (cabeça), o resto vira False (ar).
+
+        #precorrer os 3 eixos à procura de "buracos" e se encontrar (como nas covas nasais), preenche os mesmos para criar uma só estrutura sólida
         for s in range(ima.shape[0]):
             binary_image[s, :, :] = ndimage.morphology.binary_fill_holes(
                 binary_image[s, :, :])
@@ -520,32 +561,34 @@ class Defacer(object):
             binary_image[:, :, s] = ndimage.morphology.binary_fill_holes(
                 binary_image[:, :, s])
 
-        # draw outer contour
-        verts, faces, norm, val = marching_cubes_lewiner(binary_image, 0)
-        vint = np.round(verts).astype('int')
-        contour = np.zeros_like(binary_image)
+        # draw outer contour - cria a casca do objeto sólido
+        verts, faces, norm, val = marching_cubes_lewiner(binary_image, 0) #função auto que encontra a isosuperfície (a fronteira entre o objeto e o ar)
+        vint = np.round(verts).astype('int') #Arredonda as coordenadas da máscara para inteiros, para que correspondam a voxels na grelha da imagem.
+        contour = np.zeros_like(binary_image) #"Pinta" apenas esses pontos na matriz contour. O resultado é uma imagem preta com uma linha branca fina a desenhar a forma da cabeça.
         for s in vint:
             contour[s[0], s[1], s[2]] = 1
 
-        # shrink contour image cuz of the gaussian_filter we used earlier.
+        # shrink contour image because of the gaussian_filter we used earlier.
         if zoom != 1:
             c_shape = contour.shape
-            zoom_ = ndimage.zoom(contour, zoom, order=0,
+            zoom_ = ndimage.zoom(contour, zoom, order=0,    #encolhe a imagem da casca para reduzir o efeito do desfoque gaussiano que será aplicado posteriormente
                                  mode='constant', cval=0.0)
             zoom_shape = zoom_.shape
-            npad = ((int(np.ceil((c_shape[0]-zoom_shape[0])/2)), int((c_shape[0]-zoom_shape[0])/2)),
+            npad = ((int(np.ceil((c_shape[0]-zoom_shape[0])/2)), int((c_shape[0]-zoom_shape[0])/2)), #calcula o padding necessário para voltar ao tamanho original após o zoom
                     (int(np.ceil((c_shape[1]-zoom_shape[1])/2)),
                      int((c_shape[1]-zoom_shape[1])/2)),
                     (int(np.ceil((c_shape[2]-zoom_shape[2])/2)), int((c_shape[2]-zoom_shape[2])/2)))
 
-            contour_3D = np.pad(zoom_, npad, 'constant', constant_values=(0))
+            contour_3D = np.pad(zoom_, npad, 'constant', constant_values=(0)) #adiciona o padding calculado, preenchido com zeros (preto)
+
+
         elif zoom == 1:
             contour_3D = contour
 
         # Revert to original size
-        get_back = (image.shape[0]/128, image.shape[1]/128, image.shape[2]/128)
+        get_back = (image.shape[0]/128, image.shape[1]/128, image.shape[2]/128)  #calcula o fator de zoom necessário para voltar ao tamanho original do exame
         contour_3D = ndimage.zoom(
-            contour_3D, get_back, order=0, mode='constant', cval=0.0)
+            contour_3D, get_back, order=0, mode='constant', cval=0.0) #adapta a máscara ao tamanho original da imagem 
 
         return contour_3D
 
@@ -565,9 +608,10 @@ class Defacer(object):
 
             prefix += "_{}"
 
-            list_test_image = glob.glob(dicom_path + '/*.dcm')
-            slices = self.load_scan(list_test_image)
-            array_img = self.get_pixels(slices)
+            # carrega os ficheiros DICOM
+            list_test_image = glob.glob(dicom_path + '/*.dcm') 
+            slices = self.load_scan(list_test_image) # Lê o volume
+            array_img = self.get_pixels(slices) # Extrai os valores dos voxels para um array 3D numpy            
             original_shape = array_img.shape
             d_type = array_img.dtype
             thresh = threshold_triangle(array_img)
@@ -576,17 +620,19 @@ class Defacer(object):
             self.header_deidentification(slices, check=False)
 
             # Make the superior coordinates the direction of increasing.
-
-            X = slices[0][0x00200037].value[0:3]
+            # Álgebra que permite determinar a orientação espacial do exame DICOM
+            X = slices[0][0x00200037].value[0:3] #vetor X
             X = [float(i) for i in X]
 
-            Y = slices[0][0x00200037].value[3:6]
+            Y = slices[0][0x00200037].value[3:6] #vetor Y
             Y = [float(i) for i in Y]
 
-            superior = [X[2],  Y[2],  np.cross(X,Y)[2]]
-            arg = np.argmax(np.abs(superior))
+            superior = [X[2], #componente Z das linhas, vista coronal
+                        Y[2], #componente Z das colunas, vista sagital
+                        np.cross(X,Y)[2]] #componente Z em que é a direção de "emplihamento" dos exames DICOM, vista axial
+            arg = np.argmax(np.abs(superior)) #Descobre qual é o eixo dominante
 
-            if superior[arg] < 0:
+            if superior[arg] < 0: #se for negativo, inverte o eixo pois a imagem está ao contrário
                 image = self.flip_axis(array_img, (2 - arg))
             else:
                 image = array_img
@@ -688,42 +734,51 @@ class Defacer(object):
             print('Error on line {}'.format(sys.exc_info()[-1].tb_lineno), type(ex).__name__, ex)
             return {"success": False, "msg": str(ex)}
 
-    # 5D tensor (batch,img_dep,img_cols,img_rows,img_channel)
+    # 5D tensor (batch, img_dep, img_cols, img_rows, img_channel)
     def load_batch(self, x_list, y_list=0, batch_size=1):
-        # 확인 후 삭제
+        # prepara dados para o modelo
+
         config = dict()  # configuration info
         config["resizing"] = True
-        config["img_channel"] = 1
-        config["batch_size"] = 1
+        config["img_channel"] = 1 #só usa um canal de cores pois está a trabalhar com imagens a preto e branco
+        config["batch_size"] = 1  #processa umaimagem de cada vez
         config["num_multilabel"] = 5  # the number of label (channel last)
 
-        image = sitk.GetArrayFromImage(
-            sitk.ReadImage(x_list)).astype('float32')
+        # load image
+        image = sitk.GetArrayFromImage(sitk.ReadImage(x_list)).astype('float32') #carrega a imagem de entrada em z, y, x
         if config["resizing"] == True:
             image = self.resize(image)
             img_shape = image.shape
         else:
             img_shape = image.shape
 
+        # reshape image to 5D tensor 
         image = np.reshape(image, (config["batch_size"], img_shape[0], img_shape[1],img_shape[2], config["img_channel"]))  # batch, z ,y, x , ch
-        n_image = (image-np.min(image))/(np.max(image)-np.min(image))
+
+
+        n_image = (image-np.min(image))/(np.max(image)-np.min(image)) # normaliza valores de intensidade entre 0 e 1
 
         label = 0
-        if y_list != 0:
-            labels = sitk.GetArrayFromImage(
-                sitk.ReadImage(y_list)).astype('float32')
+
+        if y_list != 0: #modo de treino (=0 se inferencia)
+            # load label        
+            labels = sitk.GetArrayFromImage(sitk.ReadImage(y_list)).astype('float32') #carrega a magem, que tem todos os voxels categorizados
+
             if config["resizing"] == True:
                 labels = self.resize(labels)
                 lb_shape = labels.shape
             else:
                 lb_shape = labels.shape
 
-            onehot = to_categorical(labels)
+            onehot = to_categorical(labels) #converte os labels para one-hot encoding
+
             label = np.reshape(
                 onehot, (config["batch_size"], lb_shape[0], lb_shape[1], lb_shape[2], config["num_multilabel"]))
 
         return n_image, label
 
+
+#Força qualquer matriz 3D a caber numa caixa de tamanho fixo (por defeito 128x128x128)
     def resize(self, data, img_dep=128, img_cols=128, img_rows=128):
         resize_factor = (
             img_dep/data.shape[0], img_cols/data.shape[1], img_rows/data.shape[2])
@@ -816,17 +871,17 @@ class Defacer(object):
 
             if where[3] : # mouth
             
-	            mouth_results = results[...,4] 
-	            border = self.box_blur(np.ones(array_img.shape),boxes[5],1) #'box_blur' function is based on array_img.shape (nibabel liabrary)
-	            border = 1-border
-	            if where[1] == False: # If you want to preserve the nose
-	                 border = self.box_blur(border,boxes[2],1, wth=1.5)
-	                    
-	            mouth_results = border*mouth_results.T
-	            
-	            threshold = np.max(ndimage.gaussian_filter(array_img[mouth_results==1],sigma=3))
-	            array_img[mouth_results==1] = threshold
-	            
+                mouth_results = results[...,4] 
+                border = self.box_blur(np.ones(array_img.shape),boxes[5],1) #'box_blur' function is based on array_img.shape (nibabel liabrary)
+                border = 1-border
+                if where[1] == False: # If you want to preserve the nose
+                        border = self.box_blur(border,boxes[2],1, wth=1.5)
+                        
+                mouth_results = border*mouth_results.T
+                
+                threshold = np.max(ndimage.gaussian_filter(array_img[mouth_results==1],sigma=3))
+                array_img[mouth_results==1] = threshold
+                
 
             array_img = np.round(array_img)
             array_img = np.array(array_img, dtype='int32')

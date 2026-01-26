@@ -27,9 +27,7 @@ config = dict() #configuration info
 
 
 
-# # 3D Unet Model 
-
-
+# # 3D Unet Model
 
 
 #configure parameter & hyper parameter
@@ -104,6 +102,8 @@ The order of the spline interpolation. 0-5까지 옵션있음 ,
     
 # keras_contrib.layers.InstanceNormalization
 # https://github.com/keras-team/keras-contrib/blob/master/keras_contrib/layers/normalization/instancenormalization.py
+
+#esta classe tinha sido criada pois antes não existia a InstanceNormalization no keras_contrib, mas agora já existe com o Tensorflow 2.x
 class InstanceNormalization(Layer):
     """Instance normalization layer.
     Normalize the activations of the previous layer at each step,
