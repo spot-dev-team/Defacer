@@ -1,0 +1,1 @@
+Esta pasta serve para ter réplicas do código que uso no Deucalion.

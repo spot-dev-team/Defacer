@@ -1,0 +1,31 @@
+--- INÍCIO DO JOB NO DEUCALION ---
+Data: Fri 20 Mar 15:10:14 WET 2026
+Nó: cnx005.deucalion.macc.fccn.pt
+----------------------------------
+--- INICIANDO INFERÊNCIA ---
+-> A carregar modelo e processar imagem...
+-> A executar predição...
+1/1 [==============================] - ETA: 0s1/1 [==============================] - 2s 2s/step
+
+==============================
+CLASSE          | DICE SCORE
+------------------------------
+Background      | 0.9949
+Ears            | 0.8162
+Mouth           | 0.7753
+Nose            | 0.6857
+Eyes            | 0.8215
+------------------------------
+Média PHI       | 0.7747
+Média Global    | 0.8187
+==============================
+
+-> A gerar imagem final anonimizada...
+Sucesso! MRI anonimizado guardado em: /projects/F202500001HPCVLABEPICURE/andresousa615/defacer/treino_deucalion/DeID_raw.nii.gz
+-> A gerar painel de validação visual (PNG)...
+Painel visual gerado em: /projects/F202500001HPCVLABEPICURE/andresousa615/defacer/treino_deucalion/Validation_raw.png
+----------------------------------
+--- FIM DO JOB NO DEUCALION ---
+Data de Finalização: Fri 20 Mar 15:11:24 WET 2026
+Tempo Total de Execução: 70 segundos
+----------------------------------

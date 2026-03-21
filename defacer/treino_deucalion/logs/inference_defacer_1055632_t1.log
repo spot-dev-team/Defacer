@@ -1,0 +1,18 @@
+--- INÍCIO DO JOB NO DEUCALION ---
+Data: Fri 20 Mar 16:16:41 WET 2026
+Nó: cnx004.deucalion.macc.fccn.pt
+----------------------------------
+--- INICIANDO INFERÊNCIA ---
+-> A carregar modelo globalmente...
+-> A executar processamento e anonimização (defacer.py)...
+1/1 [==============================] - ETA: 0s1/1 [==============================] - 2s 2s/step
+Mask saved successfully at: /projects/F202500001HPCVLABEPICURE/andresousa615/defacer/treino_deucalion/MASK_raw.nii.gz
+
+--- INICIANDO ANÁLISE DE MÉTRICAS E VALIDAÇÃO ---
+-> A gerar o painel de validação visual...
+Sucesso! Painel visual gerado em: /projects/F202500001HPCVLABEPICURE/andresousa615/defacer/treino_deucalion/Validation_Defacer_raw.png
+----------------------------------
+--- FIM DO JOB NO DEUCALION ---
+Data de Finalização: Fri 20 Mar 16:17:52 WET 2026
+Tempo Total de Execução: 71 segundos
+----------------------------------
